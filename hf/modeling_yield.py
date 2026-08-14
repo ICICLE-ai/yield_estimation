@@ -70,12 +70,15 @@ class YieldForRegression(PreTrainedModel):
         y_mean = torch.tensor(self.config.y_mean, device=logits.device, dtype=logits.dtype)
         y_std = torch.tensor(self.config.y_std, device=logits.device, dtype=logits.dtype)
 
-        predictions = torch.expm1(logits * y_std + y_mean)
+        #predictions = torch.expm1(logits * y_std + y_mean)
+        predictions = logits * y_std + y_mean
 
         loss = None
         if labels is not None:
-            labels_log = torch.log1p(torch.clamp(labels, min=0.0))
-            labels_norm = (labels_log - y_mean) / y_std
+            # labels_log = torch.log1p(torch.clamp(labels, min=0.0))
+            # labels_norm = (labels_log - y_mean) / y_std
+            # loss = nn.functional.mse_loss(logits, labels_norm)
+            labels_norm = (labels - y_mean) / y_std
             loss = nn.functional.mse_loss(logits, labels_norm)
 
         if not return_dict:

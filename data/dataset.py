@@ -78,18 +78,46 @@ class YieldDataset(Dataset):
             year_list = [int(y.strip()) for y in years.split(",") if y.strip()]
             df = df[df[year_col].isin(year_list)].reset_index(drop=True)
 
-        self.daily_cols_by_var = {}
+        self.weather_cols_by_var = {}
+
         for v in weather_vars:
             cols = find_daily_cols(df, v)
+
             if not cols:
                 examples = [c for c in df.columns if str(c).startswith(v)][:10]
-                raise ValueError(f"No daily columns found for weather var '{v}'. Examples: {examples}")
-            self.daily_cols_by_var[v] = cols
+                raise ValueError(
+                    f"No indexed columns found for weather var '{v}'. "
+                    f"Examples: {examples}"
+                )
 
-        self.K = len(daily_to_cumulative_weekly(
-            df.loc[0, self.daily_cols_by_var[weather_vars[0]]].to_numpy(dtype=np.float32),
-            agg=DEFAULT_WEATHER_AGG_RULES.get(weather_vars[0], "mean"),
-        ))
+            self.weather_cols_by_var[v] = cols
+
+
+        if self.time_agg == "weekly":
+            # Input data is already weekly.
+            self.K = len(
+                self.weather_cols_by_var[weather_vars[0]]
+            )
+
+        elif self.time_agg == "weekly_cumulative":
+            # Existing behavior for daily input.
+            self.K = len(
+                daily_to_cumulative_weekly(
+                    df.loc[
+                        0,
+                        self.weather_cols_by_var[weather_vars[0]]
+                    ].to_numpy(dtype=np.float32),
+                    agg=DEFAULT_WEATHER_AGG_RULES.get(
+                        weather_vars[0],
+                        "mean",
+                    ),
+                )
+            )
+
+        else:
+            raise ValueError(
+                "time_agg must be 'weekly' or 'weekly_cumulative'"
+            )
 
         df = df.reset_index(drop=True)
         self.df_full = df
@@ -160,14 +188,55 @@ class YieldDataset(Dataset):
         ridx = int(self.indices[idx])
         row = self.df.loc[ridx]
 
-        weekly_vars = []
-        for v in self.weather_vars:
-            daily = row[self.daily_cols_by_var[v]].to_numpy(dtype=np.float32)
-            agg = DEFAULT_WEATHER_AGG_RULES.get(v, "mean")
-            seq = daily_to_cumulative_weekly(daily, agg=agg, week_len=7)
-            weekly_vars.append(seq)
+        weather_vars = []
 
-        weather = np.stack(weekly_vars, axis=1).astype(np.float32)
+        for v in self.weather_vars:
+
+            values = row[
+                self.weather_cols_by_var[v]
+            ].to_numpy(dtype=np.float32)
+
+            if self.time_agg == "weekly":
+
+                # Data is already weekly.
+                # Use the 52 weekly values exactly as supplied.
+                seq = values
+
+            elif self.time_agg == "weekly_cumulative":
+
+                # Existing behavior for datasets containing daily weather.
+                agg = DEFAULT_WEATHER_AGG_RULES.get(v, "mean")
+
+                seq = daily_to_cumulative_weekly(
+                    values,
+                    agg=agg,
+                    week_len=7,
+                )
+
+            weather_vars.append(seq)
+
+
+        if self.time_agg == "weekly":
+
+            # [K, number_of_weather_variables]
+            weather = np.stack(
+                weather_vars,
+                axis=1,
+            ).astype(np.float32)
+
+        else:
+
+            # Existing daily -> weekly+cumulative representation
+            weather = np.stack(
+                weather_vars,
+                axis=1,
+            ).astype(np.float32)
+
+            weather = weather.reshape(
+                weather.shape[0],
+                -1,
+            ).astype(np.float32)
+        
         soil = self.soil_arr[ridx].astype(np.float32)
 
         if self.w_mean is not None:

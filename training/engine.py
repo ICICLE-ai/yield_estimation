@@ -4,6 +4,7 @@ import torch
 import torch.nn.functional as F
 import numpy as np
 from sklearn.metrics import r2_score
+from tqdm.auto import tqdm
 
 def train_one_epoch(model, loader, optimizer, device, y_mean, y_std, cutoffs):
     model.train()
@@ -67,7 +68,13 @@ def evaluate(model, loader, device, y_mean, y_std, cutoffs):
         y_true_all = []
         y_pred_all = []
 
-        for batch in loader:
+        pbar = tqdm(
+            loader,
+            desc="Validation",
+            leave=False,
+        )
+
+        for batch in pbar:
             weather = batch["weather"].to(device)
             soil = batch["soil"].to(device)
             crop_id = batch["crop_id"].to(device)
@@ -87,7 +94,8 @@ def evaluate(model, loader, device, y_mean, y_std, cutoffs):
             if hasattr(out, "predictions"):
                 yhat = out.predictions
             else:
-                yhat = torch.expm1(out * y_std + y_mean)
+                #yhat = torch.expm1(out * y_std + y_mean)
+                yhat = out * y_std + y_mean
 
             y_true_all.extend(y.detach().cpu().numpy().tolist())
             y_pred_all.extend(yhat.detach().cpu().numpy().tolist())

@@ -28,6 +28,11 @@ def parse_args():
     p.add_argument("--batch_size", type=int, default=64)
     p.add_argument("--output_csv", default="eval_predictions.csv")
     p.add_argument("--metrics_json", default="eval_metrics.json")
+    p.add_argument(
+        "--time_agg",
+        default="weekly",
+        choices=["weekly", "weekly_cumulative"],
+    )
     return p.parse_args()
 
 
@@ -51,8 +56,8 @@ def main():
         seed=1234,
         crop=None,
         years=None,
+        time_agg=args.time_agg,
     )
-
     test_ds.set_normalization(
         cfg.w_mean,
         cfg.w_std,

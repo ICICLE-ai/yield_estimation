@@ -4,6 +4,8 @@ from pathlib import Path
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(PROJECT_ROOT))
 
+from tqdm.auto import tqdm
+import time
 import argparse
 import json
 import random
@@ -14,7 +16,7 @@ from transformers import AutoConfig, AutoModel
 
 from config.config import TrainConfig
 from data.dataset import YieldDataset
-from data.preprocessing import compute_x_stats, compute_y_log_stats
+from data.preprocessing import compute_x_stats, compute_y_stats
 from training.engine import evaluate
 from hf.configuration_yield import YieldConfig
 from hf.auto import register_yield_autoclass
@@ -45,6 +47,11 @@ def parse_args():
     p.add_argument("--lr", type=float, default=3e-4)
     p.add_argument("--weight_decay", type=float, default=1e-4)
     p.add_argument("--seed", type=int, default=1234)
+    p.add_argument(
+        "--time_agg",
+        default="weekly_cumulative",
+        choices=["weekly", "weekly_cumulative"],
+    )
     return p.parse_args()
 
 
@@ -56,26 +63,53 @@ def train_one_epoch_hf(model, loader, optimizer, device, cutoffs):
     se_raw = 0.0
     n = 0
 
-    for batch in loader:
+    pbar = tqdm(
+        loader,
+        desc="Training",
+        leave=False,
+    )
+
+    for batch in pbar:
         weather = batch["weather"].to(device)
         soil = batch["soil"].to(device)
         crop_id = batch["crop_id"].to(device)
         labels = batch["yield"].to(device)
 
-        t = random.choice(cutoffs)
-        t_eff = min(t, weather.size(1))
+        # t = random.choice(cutoffs)
+        # t_eff = min(t, weather.size(1))
 
-        out = model(
-            weather=weather[:, :t_eff, :],
-            soil=soil,
-            crop_id=crop_id,
-            labels=labels,
-            horizon_idx=t_eff,
-            causal=True,
-            return_sequence=False,
-        )
+        # out = model(
+        #     weather=weather[:, :t_eff, :],
+        #     soil=soil,
+        #     crop_id=crop_id,
+        #     labels=labels,
+        #     horizon_idx=t_eff,
+        #     causal=True,
+        #     return_sequence=False,
+        # )
 
-        loss = out.loss
+        # loss = out.loss
+
+        losses = []
+        preds_for_rmse = []
+
+        for t in cutoffs:
+            t_eff = min(t, weather.size(1))
+
+            out = model(
+                weather=weather[:, :t_eff, :],
+                soil=soil,
+                crop_id=crop_id,
+                labels=labels,
+                horizon_idx=t_eff,
+                causal=True,
+                return_sequence=False,
+            )
+
+            losses.append(out.loss)
+            preds_for_rmse.append(out.predictions)
+
+        loss = torch.stack(losses).mean()
 
         optimizer.zero_grad(set_to_none=True)
         loss.backward()
@@ -86,7 +120,10 @@ def train_one_epoch_hf(model, loader, optimizer, device, cutoffs):
         n_total += labels.size(0)
 
         with torch.no_grad():
-            pred = out.predictions
+            # pred = out.predictions
+            # se_raw += ((pred - labels) ** 2).sum().item()
+            # n += labels.numel()
+            pred = torch.stack(preds_for_rmse, dim=0).mean(dim=0)
             se_raw += ((pred - labels) ** 2).sum().item()
             n += labels.numel()
 
@@ -106,6 +143,7 @@ def save_json(path, obj):
 
 
 def main():
+    print("Starting training script...")
     args = parse_args()
     register_yield_autoclass()
 
@@ -147,6 +185,7 @@ def main():
         split_strategy=cfg.split_strategy,
         val_split=cfg.val_split,
         test_split=cfg.test_split,
+        time_agg=args.time_agg,
     )
 
     if cfg.val_file:
@@ -158,6 +197,7 @@ def main():
             seed=cfg.seed,
             crop=cfg.crop,
             years=cfg.years,
+            time_agg=args.time_agg,
         )
     else:
         val_ds = YieldDataset(
@@ -171,10 +211,11 @@ def main():
             split_strategy=cfg.split_strategy,
             val_split=cfg.val_split,
             test_split=cfg.test_split,
+            time_agg=args.time_agg,
         )
 
     w_mean, w_std, s_mean, s_std = compute_x_stats(train_ds, seed=cfg.seed)
-    y_mean, y_std = compute_y_log_stats(train_ds)
+    y_mean, y_std = compute_y_stats(train_ds)
 
     train_ds.set_normalization(w_mean, w_std, s_mean, s_std)
     val_ds.set_normalization(w_mean, w_std, s_mean, s_std)
@@ -220,8 +261,12 @@ def main():
 
     best_val = float("inf")
     best_metrics = None
+    patience = 5
+    bad_epochs = 0
 
     for epoch in range(1, cfg.epochs + 1):
+        epoch_start = time.time()
+
         train_metrics = train_one_epoch_hf(
             model=model,
             loader=train_loader,
@@ -239,6 +284,14 @@ def main():
             cutoffs=cfg.eval_cutoffs,
         )
 
+        epoch_time = time.time() - epoch_start
+        remaining = (cfg.epochs - epoch) * epoch_time
+
+        print(
+            f"\nEpoch {epoch}/{cfg.epochs}"
+            f" | time={epoch_time/60:.1f} min"
+            f" | ETA={remaining/60:.1f} min"
+        )
         val_rmse = sum(m["rmse"] for m in val_metrics_by_t.values()) / len(val_metrics_by_t)
 
         print(
@@ -247,7 +300,21 @@ def main():
             f"val_rmse={val_rmse:.4f}"
         )
 
+        print("\nValidation Metrics")
+        print("-" * 42)
+        print(f"{'Cutoff':>8} {'RMSE':>10} {'Bias':>10} {'R²':>10}")
+
+        for cutoff in cfg.eval_cutoffs:
+            m = val_metrics_by_t[cutoff]
+            print(
+                f"{cutoff:>8}"
+                f"{m['rmse']:>10.3f}"
+                f"{m['bias']:>10.3f}"
+                f"{m['r2']:>10.3f}"
+            )
+
         if val_rmse < best_val:
+            bad_epochs = 0
             best_val = val_rmse
             best_metrics = {
                 "epoch": epoch,
@@ -260,6 +327,13 @@ def main():
             save_json(cfg.out_dir / "metrics.json", best_metrics)
 
             print(f"Saved best HF model to {cfg.out_dir}")
+        else:
+            bad_epochs += 1
+            print(f"No improvement for {bad_epochs}/{patience} epochs.")
+
+            if bad_epochs >= patience:
+                print("Early stopping.")
+                break
 
     print("Best metrics:")
     print(json.dumps(best_metrics, indent=2))
@@ -278,6 +352,7 @@ def main():
             seed=cfg.seed,
             crop=cfg.crop,
             years=cfg.years,
+            time_agg=args.time_agg,
         )
 
         test_ds.set_normalization(w_mean, w_std, s_mean, s_std)

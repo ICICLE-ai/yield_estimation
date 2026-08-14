@@ -118,8 +118,10 @@ class UnimodalWS_CrossAttn_TemporalTF(nn.Module):
         s_encoded = self.soil_enc(soil_in) # [B, D] - Saved for skip connection later
         
         # 3. Cross Attention & Horizon 
-        attn_out, _ = self.ws_cross_attn(query=w_tok, key=s_encoded[:, None, :], value=s_encoded[:, None, :])
-        fused = self.ws_ln(w_tok + attn_out)
+        # attn_out, _ = self.ws_cross_attn(query=w_tok, key=s_encoded[:, None, :], value=s_encoded[:, None, :])
+        # fused = self.ws_ln(w_tok + attn_out)
+
+        fused = self.ws_ln(w_tok + s_encoded[:, None, :])
         fused = fused + h_tok[:, None, :] # Horizon aware tokens
 
         # 4. Temporal Transformer
@@ -135,7 +137,21 @@ class UnimodalWS_CrossAttn_TemporalTF(nn.Module):
         else: t_idx = t
 
         src_key_padding_mask = ~week_mask.bool() if week_mask is not None else None
-        h = self.temporal_tf(x, src_key_padding_mask=src_key_padding_mask)
+        #h = self.temporal_tf(x, src_key_padding_mask=src_key_padding_mask)
+
+        attn_mask = None
+        if causal:
+            L = x.size(1)
+            attn_mask = torch.triu(
+                torch.ones(L, L, device=device, dtype=torch.bool),
+                diagonal=1,
+            )
+
+        h = self.temporal_tf(
+            x,
+            mask=attn_mask,
+            src_key_padding_mask=src_key_padding_mask,
+        )
 
         # 5. Global Mean Pooling
         if self.pool == "mean":

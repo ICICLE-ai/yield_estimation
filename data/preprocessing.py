@@ -46,18 +46,46 @@ def find_daily_cols(df: pd.DataFrame, var: str) -> list[str]:
     hits.sort(key=lambda x: x[0])
     return [c for _, c in hits]
 
-def daily_to_cumulative_weekly(daily: np.ndarray, agg: str, week_len: int = 7) -> np.ndarray:
+# def daily_to_cumulative_weekly(daily: np.ndarray, agg: str, week_len: int = 7) -> np.ndarray:
+#     daily = daily.astype(np.float32)
+#     T = daily.shape[0]
+#     K = int(math.ceil(T / week_len))
+#     out = np.zeros(K, dtype=np.float32)
+
+#     for w in range(K):
+#         e = min((w + 1) * week_len, T)
+#         chunk = daily[:e]
+#         out[w] = np.nansum(chunk) if agg == "sum" else np.nanmean(chunk)
+
+#     return out
+
+def daily_to_cumulative_weekly(
+    daily: np.ndarray,
+    agg: str,
+    week_len: int = 7,
+) -> np.ndarray:
     daily = daily.astype(np.float32)
     T = daily.shape[0]
     K = int(math.ceil(T / week_len))
-    out = np.zeros(K, dtype=np.float32)
+
+    weekly = np.zeros(K, dtype=np.float32)
+    cumulative = np.zeros(K, dtype=np.float32)
 
     for w in range(K):
+        s = w * week_len
         e = min((w + 1) * week_len, T)
-        chunk = daily[:e]
-        out[w] = np.nansum(chunk) if agg == "sum" else np.nanmean(chunk)
 
-    return out
+        week_chunk = daily[s:e]
+        cumulative_chunk = daily[:e]
+
+        if agg == "sum":
+            weekly[w] = np.nansum(week_chunk)
+            cumulative[w] = np.nansum(cumulative_chunk)
+        else:
+            weekly[w] = np.nanmean(week_chunk)
+            cumulative[w] = np.nanmean(cumulative_chunk)
+
+    return np.stack([weekly, cumulative], axis=1).astype(np.float32)
 
 def compute_x_stats(dataset, max_samples=20000, seed=0):
     rng = np.random.default_rng(seed)
@@ -85,7 +113,7 @@ def compute_x_stats(dataset, max_samples=20000, seed=0):
 
     return w_mean, w_std, s_mean, s_std
 
-def compute_y_log_stats(dataset):
+def compute_y_stats(dataset):
     ys = np.array([float(dataset[i]["yield"]) for i in range(len(dataset))], dtype=np.float32)
-    ys_log = np.log1p(np.clip(ys, 0.0, None))
-    return float(ys_log.mean()), float(ys_log.std() + 1e-6)
+    #ys_log = np.log1p(np.clip(ys, 0.0, None))
+    return float(ys.mean()), float(ys.std() + 1e-6)

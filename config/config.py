@@ -31,19 +31,19 @@ class TrainConfig:
     eval_cutoffs: list[int] | None = None
     predict_cutoff: int | None = None
 
-    d_model: int = 128
+    d_model: int = 64
     nhead: int = 4
     num_layers: int = 4
-    dim_ff: int = 256
-    dropout: float = 0.3
-    pool: str = "mean"
+    dim_ff: int = 128
+    dropout: float = 0.4
+    pool: str = "last"
     use_crop: bool = True
     crop_emb_dim: int = 8
 
     epochs: int = 10
-    lr: float = 3e-4
+    lr: float = 1e-4
     batch_size: int = 64
-    weight_decay: float = 1e-4
+    weight_decay: float = 1e-3
     seed: int = 1234
     early_stop_patience: int = 3
 

@@ -1,0 +1,11 @@
+__pycache__/
+*.py[cod]
+*.so
+
+.ipynb_checkpoints/
+
+inference_prediction.csv
+*.out
+*.err
+
+.DS_Store

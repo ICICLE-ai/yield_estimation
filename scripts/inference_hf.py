@@ -44,10 +44,13 @@ def load_single_sample_json(path, cfg, cutoff):
         if weather_format == "daily":
             agg = DEFAULT_WEATHER_AGG_RULES.get(v, "mean")
             arr = daily_to_cumulative_weekly(arr, agg=agg, week_len=7)
-        elif weather_format == "weekly_cumulative":
+        elif weather_format in ("weekly", "weekly_cumulative"):
             pass
         else:
-            raise ValueError("weather_format must be 'daily' or 'weekly_cumulative'.")
+            raise ValueError(
+                "weather_format must be 'daily', 'weekly', "
+                "or 'weekly_cumulative'."
+            )
 
         weather_cols.append(arr)
 
