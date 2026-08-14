@@ -127,7 +127,7 @@ The GitHub repository and Hugging Face repository serve different purposes.
 
 This repository contains the original regression-oriented training, evaluation, and inference implementation.
 
-The Hugging Face release contains the deployment-oriented package used to expose the trained model through a standard Hugging Face pipeline supported by FlexServ.
+The Yield estimation model on Hugging Face contains the deployment-oriented package used to load the trained model through a standard Hugging Face pipeline supported by FlexServ.
 
 ## Prerequisites
 
@@ -512,7 +512,7 @@ text-classification
 
 pipeline as a compatibility interface for FlexServ.
 
-This does **not** change the underlying scientific task. The model remains a regression model, and the returned `score` represents predicted corn yield in `bu/acre`.
+This does **not** change the underlying regression task. The model remains a regression model, and the returned `score` represents predicted corn yield in `bu/acre`.
 
 The yield estimation inference service can be performed by using Hugging Face model through Flexserv.
 
@@ -529,7 +529,7 @@ Model: ICICLE-AI/yield-estimation
 
 FlexServ requires the `inputs` field for this task to be a string. Therefore, the structured yield input is serialized into a JSON-formatted string before being submitted to the service.
 
-Conceptually, the request is:
+The request looks like:
 
 ```json
 {
@@ -540,7 +540,7 @@ Conceptually, the request is:
 }
 ```
 
-A successful response follows the form:
+A successful response looks like:
 
 ```json
 [
@@ -650,9 +650,8 @@ This allows the same trained model to support both earlier-season and full-seaso
 - **Multi-Temporal Training:** Supports multiple seasonal prediction cutoffs from week 20 through week 52.
 - **Training Reproducibility:** Includes data preparation, training, evaluation, and inference scripts.
 - **Hugging Face Checkpoint Format:** Stores the final trained model using Hugging Face-compatible configuration and Safetensors weights.
-- **Automatic Normalization:** Stores training-derived weather, soil, and output normalization statistics with the checkpoint.
 - **Standalone Inference:** Supports inference from structured sample input using the original regression checkpoint.
 - **HPC Training:** Includes an example SLURM training workflow.
-- **Hugging Face Release:** Provides a separately packaged pretrained model for convenient inference.
-- **FlexServ Deployment:** The released Hugging Face package has been validated through a FlexServ-supported inference interface.
+- **Hugging Face model:** Provides a separately packaged pretrained model for convenient inference.
+- **FlexServ Deployment:** The released Hugging Face package can be used to perform inference through a FlexServ-supported inference interface.
 - **CPU and GPU Support:** Supports PyTorch inference and training on compatible CPU and CUDA environments.
